@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Автопродолжение</title>
+<style>
+:root{--bg:#121315;--bg2:#17181B;--ink:#E8E6E1;--mid:#B9B7B2;--dim:#7C7F85;--line:#26282C;--accent:#E0703A;
+  --sans:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:'Geist Mono',ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,'SF Mono',Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans)}
+main{max-width:780px;margin:0 auto;padding:clamp(28px,9vh,80px) clamp(16px,5vw,40px)}
+.eyebrow{font:11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.lang{font:11px var(--mono);letter-spacing:.12em;color:var(--dim);margin:0 0 14px;white-space:nowrap}
+.lang a{color:var(--dim);text-decoration:none;cursor:pointer;padding:2px}
+.lang a.on{color:var(--ink)}
+.lang a:hover{color:var(--accent)}
+h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin:0 0 12px}
+.lead{color:var(--mid);margin:0 0 28px;max-width:60ch}
+.box{position:relative;background:var(--bg2);border:1px solid var(--line);border-radius:6px}
+.box:focus-within{border-color:#3C3F45}
+/* пока модель грузится, поле размыто: печатать можно, продолжения нет */
+.mi,.t{transition:filter .4s}
+.box.wait .mi,.box.wait .t{filter:blur(3px)}
+/* поле и его зеркало: один шрифт, одни поля, один перенос — серый хвост встаёт ровно туда, где стоит курсор */
+.mi,.t{font:20px/1.55 var(--sans);padding:18px 20px;margin:0;border:0;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;letter-spacing:0;word-spacing:0}
+.mi{min-height:230px;color:transparent;pointer-events:none;user-select:none}
+.t{position:absolute;inset:0;width:100%;height:100%;resize:none;overflow:hidden;background:transparent;color:var(--ink);outline:0;caret-color:var(--accent)}
+.t::placeholder{color:var(--dim)}
+.g{color:var(--dim)}
+.vars{margin:12px 2px 0;min-height:1.6em;color:var(--dim);font-size:16px}
+.vars .k{font:12px var(--mono);margin-right:6px}
+.vars button{appearance:none;background:none;border:0;padding:0 2px;margin:0;font:inherit;color:var(--mid);cursor:pointer;border-bottom:1px dotted #4A4D53}
+.vars button b{color:var(--ink);font-weight:600}
+.vars button.on{color:var(--ink);border-bottom:1px solid var(--accent)}
+.vars button:hover,.vars button:focus-visible{color:var(--ink);border-bottom-color:var(--accent);outline:0}
+.st{font:12px/1.5 var(--mono);color:var(--dim);margin:6px 2px 0;min-height:1.5em}
+/* о модели — как на главной: видно введение и «Коротко», подробности разделов под «+» (details, как FAQ главной) */
+.about{margin-top:clamp(56px,9vh,96px);padding-top:clamp(40px,6vh,64px);border-top:1px solid var(--line)}
+.about h2{font-size:clamp(24px,3vw,32px);letter-spacing:-.02em;line-height:1.15;margin:0 0 16px}
+.about p,.about li{color:var(--mid);max-width:64ch}
+.about p{margin:0 0 16px}
+.about .eyebrow{margin:32px 0 14px;color:var(--dim)}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 28px;margin:0 0 40px;padding:0}
+.facts div{border-top:1px solid var(--line);padding-top:12px}
+.facts dt{font-size:20px;font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:0 0 4px}
+.facts dd{margin:0;color:var(--dim);font-size:14px;line-height:1.45}
+.faq{border-top:1px solid var(--line)}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{cursor:pointer;list-style:none;padding:20px 0;font-size:17px;font-weight:500;display:flex;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::before{content:'+';color:var(--accent);font-family:var(--mono)}
+.faq details[open] summary::before{content:'–'}
+.faq .in{padding:0 0 22px 26px}
+.faq ul{margin:0 0 16px;padding-left:18px}
+.faq li{margin:0 0 10px}
+.faq li b,.faq p b{color:var(--ink);font-weight:600}
+@media(max-width:520px){.mi,.t{font-size:18px;padding:14px 14px}.facts{grid-template-columns:repeat(2,1fr)}.faq .in{padding-left:0}}
+</style>
+<main>
+  <div class="top"><p class="eyebrow" data-t="eyebrow">Автопродолжение · v2.1</p><p class="lang"><a data-l="ru">RU</a> · <a data-l="en">EN</a></p></div>
+  <h1 data-t="h1">Вы печатаете — модель дописывает</h1>
+  <p class="lead" data-t="lead">Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Модель работает прямо в браузере.</p>
+  <div class="box wait" id="box">
+    <div class="mi" id="mi" aria-hidden="true"></div>
+    <textarea class="t" id="t" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="" autofocus></textarea>
+  </div>
+  <p class="vars" id="vars"></p>
+  <p class="st" id="st"></p>
+
+  <section class="about" id="about"></section>
+</main>
+<template id="about-ru">
+    <h2>О модели</h2>
+    <p>Это небольшая языковая модель, которая читает и пишет текст по буквам. У неё нет словаря токенов, как у ChatGPT или Llama: на входе буквы, на выходе — тоже. Поэтому она не пасует перед неизвестными словами: опечатки, неологизмы, редкие фамилии обрабатываются так же, как обычный текст.</p>
+
+    <p class="eyebrow">Коротко</p>
+    <dl class="facts">
+      <div><dt>47 млн</dt><dd>параметров</dd></div>
+      <div><dt>16 млрд</dt><dd>букв прочитано при обучении (20 языков)</dd></div>
+      <div><dt>Нет словаря токенов</dt><dd>работает посимвольно</dd></div>
+      <div><dt>Всё считается локально</dt><dd>текст не покидает ваш браузер</dd></div>
+      <div><dt>75 МБ</dt><dd>вес при первой загрузке (дальше из кэша)</dd></div>
+      <div><dt>70–130 мс</dt><dd>скорость генерации подсказки на среднем ноутбуке</dd></div>
+    </dl>
+
+    <div class="faq">
+      <details>
+        <summary>Как это устроено</summary>
+        <div class="in">
+          <p>Архитектура состоит из трёх «этажей»:</p>
+          <ul>
+            <li><b>Нижний (чтение):</b> собирает буквы каждого слова в единый вектор — сжатый смысл слова.</li>
+            <li><b>Средний (тело):</b> работает уже со словами. Одни блоки внимательно смотрят на последние 128 слов, другие держат сжатую память о прочитанном, которая со временем выцветает. Тело решает, каким будет следующее слово.</li>
+            <li><b>Верхний (письмо):</b> опираясь на подсказку тела, дописывает слово буква за буквой.</li>
+          </ul>
+          <p>Сбоку работает «голова копирования»: она замечает, если похожая цепочка букв уже встречалась в вашем тексте, и предлагает продолжить её точно так же.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Как она училась</summary>
+        <div class="in">
+          <p>Модель прочитала около 16 миллиардов символов веб-текстов на 20 языках (доля русского — около 60%).</p>
+          <p>Модель скорее учебная, чем серьёзная промышленная, обучалась она на одной ноутбучной видеокарте RTX 4050 (6 ГБ). Прямо в процессе, без перезапуска, модель «подросла»: мы на ходу добавили ей новые блоки тела. После обучения её урезали, убрав половину самых малополезных нейронов и часть механизмов внимания. Из 84 млн параметров осталось 47 млн, а качество почти не просело. После короткого дообучения модель была готова.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Насколько хорошо работает</summary>
+        <div class="in">
+          <ul>
+            <li>После 2-х букв угадывает слово целиком в 41% случаев.</li>
+            <li>После 3-х букв — в 57%.</li>
+            <li>Сразу после пробела (ещё до первой буквы) угадывает следующее слово в 16% случаев (каждый шестой раз).</li>
+          </ul>
+          <p>Для сравнения: обычная частотная подсказка по предыдущему слову выдаёт 23%, 35% и 6% соответственно. Замеры проводились на русских веб-текстах.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Известные минусы</summary>
+        <div class="in">
+          <ul>
+            <li><b>Слабая подсказка с первой буквы:</b> сила модели именно в том, чтобы дописать слово после 2-3 символов.</li>
+            <li><b>Риск зацикливания:</b> если принимать подсказки подряд, модель начнёт повторять одни и те же фразы. «Голова копирования» только усиливает этот эффект, защиты от повторов пока нет.</li>
+            <li><b>Много мусорных вариантов после пробела:</b> модель угадывает слово до первой буквы только в 1 из 6 случаев, но показывает варианты всегда — порога уверенности пока нет.</li>
+            <li><b>Смысл теряется на дистанции:</b> модель маленькая. Грамматику она держит хорошо, но длинные куски текста быстро превращаются в бред. Дальней памяти тоже нет (кроме точных повторов букв).</li>
+            <li><b>Может нагрубить:</b> обучение шло на веб-текстах, которые чистили от мусора и дублей, но не от грубостей.</li>
+            <li><b>Тяжёлый первый запуск:</b> придётся скачать 75 МБ. На телефонах скорость пока не замеряли.</li>
+            <li><b>Другие языки под вопросом:</b> в обучающей выборке было 20 языков, они работают, но качество замеряли только на русском.</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+</template>
+<template id="about-en">
+    <h2>About the model</h2>
+    <p>This is a small language model that reads and writes text letter by letter. Unlike ChatGPT or Llama, it has no token vocabulary: letters go in and letters come out. That is why unknown words do not trip it up: typos, new words and rare surnames are handled the same way as ordinary text.</p>
+
+    <p class="eyebrow">At a glance</p>
+    <dl class="facts">
+      <div><dt>47 M</dt><dd>parameters</dd></div>
+      <div><dt>16 B</dt><dd>letters read in training (20 languages)</dd></div>
+      <div><dt>No token vocabulary</dt><dd>works character by character</dd></div>
+      <div><dt>Runs locally</dt><dd>your text never leaves the browser</dd></div>
+      <div><dt>75 MB</dt><dd>first download (cached afterwards)</dd></div>
+      <div><dt>70–130 ms</dt><dd>to produce a suggestion on an average laptop</dd></div>
+    </dl>
+
+    <div class="faq">
+      <details>
+        <summary>How it works</summary>
+        <div class="in">
+          <p>The architecture has three “floors”:</p>
+          <ul>
+            <li><b>Lower (reading):</b> gathers the letters of each word into a single vector, the compressed meaning of the word.</li>
+            <li><b>Middle (body):</b> works with whole words. Some blocks look closely at the last 128 words, others keep a compressed memory of what has been read, which fades over time. The body decides what the next word will be.</li>
+            <li><b>Upper (writing):</b> guided by the body, writes the word out letter by letter.</li>
+          </ul>
+          <p>A “copy head” works alongside: it notices when a similar run of letters has already appeared in your text and offers to continue it the same way.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How it was trained</summary>
+        <div class="in">
+          <p>The model read about 16 billion characters of web text in 20 languages (about 60% Russian, about 16% English).</p>
+          <p>It is more of a learning model than a serious industrial one: it was trained on a single laptop GPU, an RTX 4050 (6 GB). During training, without a restart, the model “grew”: we added new body blocks on the fly. After training it was trimmed by removing the least useful half of the neurons and part of the attention. Of 84 M parameters, 47 M remained, and quality barely dropped. After a short round of further training, the model was ready.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How well it works</summary>
+        <div class="in">
+          <ul>
+            <li>After 2 letters, it guesses the whole word 41% of the time.</li>
+            <li>After 3 letters, 57%.</li>
+            <li>Right after a space (before the first letter), it guesses the next word 16% of the time (one time in six).</li>
+          </ul>
+          <p>For comparison, a plain frequency suggestion based on the previous word gets 23%, 35% and 6%. Measured on Russian web text.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Known weaknesses</summary>
+        <div class="in">
+          <ul>
+            <li><b>Weak from the first letter:</b> the model's strength is finishing a word after 2–3 characters.</li>
+            <li><b>Risk of loops:</b> if you keep accepting suggestions, the model starts repeating the same phrases. The copy head makes this worse; there is no repetition guard yet.</li>
+            <li><b>Many junk variants after a space:</b> the model guesses the word before the first letter only one time in six, but always shows variants; there is no confidence threshold yet.</li>
+            <li><b>Meaning fades over distance:</b> the model is small. It keeps grammar well, but long stretches of text quickly turn into nonsense. There is no long-range memory either (apart from exact repeats of letters).</li>
+            <li><b>It can be rude:</b> it was trained on web text that was cleaned of junk and duplicates, but not of rudeness.</li>
+            <li><b>Heavy first launch:</b> you need to download 75 MB. Speed on phones has not been measured yet.</li>
+            <li><b>Other languages are uncertain:</b> the training data had 20 languages and they work, but quality was measured only on Russian.</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+</template>
+<script>
+const t=document.getElementById('t'),mi=document.getElementById('mi'),vb=document.getElementById('vars'),st=document.getElementById('st');
+// язык оформления: /ru/ или /en/ в адресе; в корне — по языку браузера. Модель одна и та же — переключатель меняет только тексты страницы
+const TX={
+  ru:{title:'Автопродолжение',eyebrow:'Автопродолжение · v2.1',h1:'Вы печатаете — модель дописывает',
+      lead:'Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Модель работает прямо в браузере.',
+      ph:'Начните печатать по-русски…',load:'Загрузка модели…',prog:(a,b)=>'Загрузка модели: '+a+' из '+b+' МБ',ready:'Модель готова',err:'Ошибка: ',
+      end:'слово дописано',next:'следующее слово',rest:'остаток слова'},
+  en:{title:'Autocomplete',eyebrow:'Autocomplete · v2.1',h1:'You type — the model finishes',
+      lead:'The rest of the word is shown in grey, and after a space, the next word. Tab to accept, ↑ and ↓ to cycle through variants, Esc to hide. You can also just click the variants below the field. The model runs right in your browser.',
+      ph:'Start typing in English…',load:'Loading the model…',prog:(a,b)=>'Loading the model: '+a+' of '+b+' MB',ready:'Model ready',err:'Error: ',
+      end:'word finished',next:'next word',rest:'rest of the word'}};
+const ROOT=location.pathname.replace(/\/(ru|en)\/?$/,'/').replace(/[^/]*$/,'');   // папка сайта: engine.js, ort/, model/ лежат в ней
+let lang=(location.pathname.match(/\/(ru|en)\/?$/)||[])[1]||((navigator.languages||[navigator.language||'']).some(l=>/^ru/i.test(l))?'ru':'en');
+let stKey='load',stArgs=[];
+const T=()=>TX[lang];
+function status(k,...a){stKey=k;stArgs=a;const v=T()[k];st.textContent=typeof v==='function'?v(...a):v+(a[0]||'')}
+function setLang(l,push){
+  lang=l;document.documentElement.lang=l;document.title=T().title;
+  document.querySelectorAll('[data-t]').forEach(el=>{el.textContent=T()[el.dataset.t]});
+  document.querySelectorAll('.lang a').forEach(a=>a.classList.toggle('on',a.dataset.l===l));
+  if(ready)t.placeholder=T().ph;
+  const ab=document.getElementById('about'),open=[...ab.querySelectorAll('details')].map(d=>d.open);   // раскрытые разделы остаются раскрытыми
+  ab.replaceChildren(document.getElementById('about-'+l).content.cloneNode(true));
+  ab.querySelectorAll('details').forEach((d,i)=>{d.open=!!open[i]});
+  if(st.textContent)status(stKey,...stArgs);
+  const url=ROOT+l+'/'+location.search;if(location.pathname+location.search!==url)history[push?'pushState':'replaceState'](null,'',url);
+}
+document.querySelectorAll('.lang a').forEach(a=>{a.href=ROOT+a.dataset.l+'/';a.addEventListener('click',e=>{e.preventDefault();setLang(a.dataset.l,true)})});
+addEventListener('popstate',()=>setLang((location.pathname.match(/\/(ru|en)\/?$/)||[])[1]||lang,false));
+const eng=new Worker(ROOT+'engine.js');
+// vars — остатки вариантов (лучший первым; '' — «слово кончилось»: хвоста нет, Tab ставит пробел), sel — выбранный (он серым в поле), pre — набранное начало слова
+let vars=[],sel=0,pre='',ready=false,busy=false,again=false,off=false,timer=0,seq=0,lastHtml='',lastVars='';
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const atEnd=()=>t.selectionStart===t.selectionEnd&&t.selectionEnd===t.value.length;
+const ghost=()=>vars[sel]||'';
+function paint(){
+  const on=atEnd()&&!off,g=on?ghost():'';
+  const h=esc(t.value)+(g?'<span class="g">'+esc(g)+'</span>':'')+'​';
+  if(h!==lastHtml){mi.innerHTML=h;lastHtml=h}                       // зеркало перестраивается только при изменении
+  const v=on&&vars.some(r=>r)?(vars.length>1?'<span class="k">↑↓</span>':'')+vars.map((r,i)=>'<button type="button" data-i="'+i+'"'+(i===sel?' class="on"':'')+'><b>'+esc(pre)+'</b>'+esc(r)+'</button>').join(' · '):'';
+  if(v!==lastVars){vb.innerHTML=v;lastVars=v}
+}
+function clear(){vars=[];sel=0;pre=''}
+function schedule(){clearTimeout(timer);timer=setTimeout(pump,60)}
+function pump(){
+  if(!ready)return;
+  if(busy){again=true;return}
+  const text=t.value;
+  if(!text||!atEnd()||off){clear();paint();return}
+  busy=true;again=false;eng.postMessage({cmd:'complete',id:++seq,text});
+}
+eng.onmessage=e=>{
+  const m=e.data;
+  if(m.ev==='progress'){status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}
+  if(m.ev==='ready'){ready=true;status('ready');t.placeholder=T().ph;document.getElementById('box').classList.remove('wait');t.dataset.ready='1';t.dataset.threads=m.threads;schedule();return}
+  if(m.ev==='error'){busy=false;status('err',m.error.split('\n')[0]);return}
+  if(m.ev!=='answer')return;
+  busy=false;
+  if(t.value===m.text&&atEnd()&&!off){
+    vars=m.suggestions.map(x=>x.word);sel=0;pre=m.after_space?'':((m.text.match(/\p{L}+$/u)||[''])[0]);paint();
+    t.dataset.answered=m.text;                                        // для тестов: ответ применён к этому тексту
+    status(m.word_end?'end':m.after_space?'next':'rest');
+    t.dataset.ms=m.ms_model;                                           // время ответа — для тестов, на экран не выводится
+  }else again=true;
+  if(again)schedule();
+};
+const qs=new URLSearchParams(location.search);                       // ?threads=4 (нужна изоляция COOP/COEP), ?body=body.onnx (fp32, для проверок)
+eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined});
+function accept(rest){                                                 // дописать остаток и пробел в конец поля (Ctrl+Z отменяет)
+  clear();t.focus();t.setSelectionRange(t.value.length,t.value.length);
+  if(!document.execCommand('insertText',false,rest+' ')){t.setRangeText(rest+' ',t.value.length,t.value.length,'end');t.dispatchEvent(new Event('input'))}
+}
+t.addEventListener('input',e=>{
+  off=false;const d=e.inputType==='insertText'?e.data:'';
+  if(d&&atEnd()&&/^\p{L}+$/u.test(d)&&vars.some(r=>r.startsWith(d)&&r.length>d.length)){   // набрал букву, с которой начинаются варианты, — список сужается без мигания
+    const keep=ghost();pre+=d;vars=vars.filter(r=>r.startsWith(d)&&r.length>d.length).map(r=>r.slice(d.length));
+    sel=Math.max(0,keep.startsWith(d)?vars.indexOf(keep.slice(d.length)):0);
+  }else clear();
+  paint();schedule();
+});
+t.addEventListener('keydown',e=>{
+  if(e.isComposing)return;
+  const on=vars.length&&atEnd()&&!off;
+  if(e.key==='Tab'&&!e.shiftKey&&on){e.preventDefault();accept(ghost())}
+  else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&on&&vars.some(r=>r)){e.preventDefault();sel=(sel+(e.key==='ArrowDown'?1:vars.length-1))%vars.length;paint()}   // пока виден список, стрелки — его
+  else if(e.key==='Escape'&&vars.length){off=true;paint()}
+});
+vb.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()});   // фокус остаётся в поле
+vb.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&vars[+b.dataset.i]!=null)accept(vars[+b.dataset.i])});
+['keyup','click','focus','select'].forEach(n=>t.addEventListener(n,paint));
+document.addEventListener('selectionchange',()=>{if(document.activeElement===t)paint()});
+setLang(lang,false);status('load');
+paint();
+</script>
