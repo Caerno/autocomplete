@@ -30,8 +30,8 @@ async function init(base, threads, bodyFile) {
   Z0 = T('float32', new Float32Array(0), [1, H, 0, DH]);
   ch2id = new Map(mt.chars.map((c, i) => [c, mt.char0 + i])); alpha = mt.alpha; spacelike = mt.spacelike; vowel = mt.vowel;
   const files = { enc: 'enc.onnx', dec: 'dec.onnx', sread: 'sread.onnx', cond: 'cond.onnx', copy: 'copy.onnx', body: bodyFile || 'body.int8.onnx' };   // тело в int8 (43 МБ); fp32 (158 МБ) — для проверки паритета
-  const sizes = {}; let total = 0, got = 0;
-  await Promise.all(Object.entries(files).map(async ([k, f]) => { const h = await fetch(base + f, { method: 'HEAD' }); sizes[k] = +h.headers.get('content-length') || 0; total += sizes[k]; }));
+  // размеры — распакованные байты из meta.json: Pages отдаёт файлы сжатыми, и content-length (сжатый) с прочитанным потоком не сходится
+  const sz = mt.files || {}; let total = Object.values(files).reduce((a, f) => a + (sz[f] || 0), 0), got = 0;
   const opt = { executionProviders: ['wasm'], graphOptimizationLevel: 'all' };
   for (const [k, f] of Object.entries(files)) {
     const buf = await fetchBuf(base + f, n => { got += n; postMessage({ ev: 'progress', got, total }); });
@@ -213,6 +213,13 @@ function branchCf(ix, rest, i) {                             // признаки
   return cf;
 }
 
+function enough(done, bestOpen) {                           // TOP разных остатков (включая «слово кончилось») уже лучше любой открытой ветки —
+  const best = new Map();                                     // дальше их счёт только падает; лучший ответ тот же, что при остановке на первом
+  for (const [rest, sc] of done) { const k = rest.join(','); if (!best.has(k) || sc > best.get(k)) best.set(k, sc); }
+  const sc = [...best.values()].sort((a, b) => b - a);
+  return sc.length >= TOP && sc[TOP - 1] > bestOpen;
+}
+
 async function complete(s, lp) {                              // луч по буквам до первой небуквы → [[остаток, log p]] по убыванию
   const r = s.r, st0 = r.snapshot(); let beams = [[0, [], st0, lp]]; const done = [];
   try {
@@ -230,7 +237,7 @@ async function complete(s, lp) {                              // луч по б�
         nxt.push([sc, rest.concat([i]), st2, await mixCopy(r.zn, branchCf(s.ix, rest, i), lg)]);
       }
       beams = nxt;
-      if (!beams.length || (done.length && Math.max(...done.map(d => d[1])) > beams[0][0])) break;
+      if (!beams.length || enough(done, beams[0][0])) break;
     }
   } finally { r.restore(st0); }
   return done.sort((a, b) => b[1] - a[1]);
@@ -244,8 +251,9 @@ async function answer(text) {
   if (!chars.length || !ch2id.has(chars[chars.length - 1])) return { suggestions: [], after_space: false, word_end: false, ms_model: 0 };   // последний знак модели не виден
   const t0 = performance.now(), ids = idsOf(text), lp = await sess.sync(ids), after_space = !alpha[ids[ids.length - 1]];
   const res = lp ? await complete(sess, lp) : [];
+  // варианты — разные остатки по убыванию; пустой остаток («слово кончилось», Tab ставит пробел) — тоже вариант, кроме как после пробела
   const word_end = res.length > 0 && res[0][0].length === 0, sugg = [], seen = new Set();
-  if (!word_end) for (const [rest, l] of res) { const w = txt(rest); if (!w || seen.has(w)) continue; seen.add(w); sugg.push({ word: w, logp: l }); if (sugg.length === TOP) break; }
+  for (const [rest, l] of res) { const w = txt(rest); if ((!w && after_space) || seen.has(w)) continue; seen.add(w); sugg.push({ word: w, logp: l }); if (sugg.length === TOP) break; }
   return { suggestions: sugg, after_space, word_end, ms_model: Math.round(performance.now() - t0) };
 }
 

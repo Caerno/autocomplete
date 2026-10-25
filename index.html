@@ -43,7 +43,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
 <script>
 const t=document.getElementById('t'),mi=document.getElementById('mi'),vb=document.getElementById('vars'),st=document.getElementById('st');
 const eng=new Worker('engine.js');
-// vars — остатки вариантов (лучший первым), sel — выбранный (он серым в поле), pre — уже набранное начало слова
+// vars — остатки вариантов (лучший первым; '' — «слово кончилось»: хвоста нет, Tab ставит пробел), sel — выбранный (он серым в поле), pre — набранное начало слова
 let vars=[],sel=0,pre='',ready=false,busy=false,again=false,off=false,timer=0,seq=0,lastHtml='',lastVars='';
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const atEnd=()=>t.selectionStart===t.selectionEnd&&t.selectionEnd===t.value.length;
@@ -52,7 +52,7 @@ function paint(){
   const on=atEnd()&&!off,g=on?ghost():'';
   const h=esc(t.value)+(g?'<span class="g">'+esc(g)+'</span>':'')+'​';
   if(h!==lastHtml){mi.innerHTML=h;lastHtml=h}                       // зеркало перестраивается только при изменении
-  const v=on&&vars.length?(vars.length>1?'<span class="k">↑↓</span>':'')+vars.map((r,i)=>'<button type="button" data-i="'+i+'"'+(i===sel?' class="on"':'')+'><b>'+esc(pre)+'</b>'+esc(r)+'</button>').join(' · '):'';
+  const v=on&&vars.some(r=>r)?(vars.length>1?'<span class="k">↑↓</span>':'')+vars.map((r,i)=>'<button type="button" data-i="'+i+'"'+(i===sel?' class="on"':'')+'><b>'+esc(pre)+'</b>'+esc(r)+'</button>').join(' · '):'';
   if(v!==lastVars){vb.innerHTML=v;lastVars=v}
 }
 function clear(){vars=[];sel=0;pre=''}
@@ -87,9 +87,9 @@ function accept(rest){                                                 // доп
 }
 t.addEventListener('input',e=>{
   off=false;const d=e.inputType==='insertText'?e.data:'';
-  if(d&&atEnd()&&ghost().startsWith(d)&&/^\p{L}+$/u.test(d)){       // набрал ту же букву, что в подсказке, — подсказка укорачивается, не мигает
+  if(d&&atEnd()&&/^\p{L}+$/u.test(d)&&vars.some(r=>r.startsWith(d)&&r.length>d.length)){   // набрал букву, с которой начинаются варианты, — список сужается без мигания
     const keep=ghost();pre+=d;vars=vars.filter(r=>r.startsWith(d)&&r.length>d.length).map(r=>r.slice(d.length));
-    sel=Math.max(0,vars.indexOf(keep.slice(d.length)));
+    sel=Math.max(0,keep.startsWith(d)?vars.indexOf(keep.slice(d.length)):0);
   }else clear();
   paint();schedule();
 });
@@ -97,7 +97,7 @@ t.addEventListener('keydown',e=>{
   if(e.isComposing)return;
   const on=vars.length&&atEnd()&&!off;
   if(e.key==='Tab'&&!e.shiftKey&&on){e.preventDefault();accept(ghost())}
-  else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&on&&vars.length>1){e.preventDefault();sel=(sel+(e.key==='ArrowDown'?1:vars.length-1))%vars.length;paint()}
+  else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&on&&vars.some(r=>r)){e.preventDefault();sel=(sel+(e.key==='ArrowDown'?1:vars.length-1))%vars.length;paint()}   // пока виден список, стрелки — его
   else if(e.key==='Escape'&&vars.length){off=true;paint()}
 });
 vb.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()});   // фокус остаётся в поле
