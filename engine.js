@@ -220,19 +220,19 @@ function enough(done, bestOpen) {                           // TOP разных 
   return sc.length >= TOP && sc[TOP - 1] > bestOpen;
 }
 
-async function complete(s, lp) {                              // луч по буквам до первой небуквы → [[остаток, log p]] по убыванию
+async function complete(s, lp, beam = BEAM) {                 // луч по буквам до первой небуквы → [[остаток, log p]] по убыванию
   const r = s.r, st0 = r.snapshot(); let beams = [[0, [], st0, lp]]; const done = [];
   try {
     for (let step = 0; step < MAXLEN; step++) {
       const cand = [];
       for (const [sc, rest, st, lpb] of beams)
-        for (const i of topk(lpb, BEAM)) {                     // счёт кандидата известен до шага модели — шагаем только лучшие BEAM
+        for (const i of topk(lpb, beam)) {                     // счёт кандидата известен до шага модели — шагаем только лучшие BEAM
           if (i === mt.eos) continue;
           if (!alpha[i]) { done.push([rest, sc + lpb[i]]); continue; }
           cand.push([sc + lpb[i], rest, st, i]);
         }
       cand.sort((a, b) => b[0] - a[0]); const nxt = [];
-      for (const [sc, rest, st, i] of cand.slice(0, BEAM)) {
+      for (const [sc, rest, st, i] of cand.slice(0, beam)) {
         r.restore(st); const lg = await r.push(i), st2 = r.snapshot();
         nxt.push([sc, rest.concat([i]), st2, await mixCopy(r.zn, branchCf(s.ix, rest, i), lg)]);
       }
@@ -246,14 +246,38 @@ async function complete(s, lp) {                              // луч по б�
 const idsOf = text => { const out = []; for (const ch of text) { const i = ch2id.get(ch); if (i !== undefined) out.push(i); } return out; };
 const txt = ids => ids.map(i => mt.chars[i - mt.char0]).join('');
 
+// Приём подсказок подряд уводил в цикл («и в области … и в области …»): модель сама выбирает самое
+// вероятное продолжение, и в своём же тексте это повтор. Вариант, который вместе с двумя предыдущими словами повторяет тройку слов из последних
+// ~400 знаков, не предлагается; если запрещены все — тот же шаг с лучом 8 (в замере 8 окон × 40 подсказок: 0 % повторённых троек, ни одно окно
+// не замолчало); если пусто и так — подсказки нет.
+const REPEAT_WIN = 400, BEAM_WIDE = 8;
+const wordsOf = s => s.toLowerCase().match(/\p{L}+/gu) || [];
+function repeatsTrigram(text, full, afterSpace) {             // full — целое слово (набранное начало + остаток)
+  const hist = wordsOf(text.slice(-REPEAT_WIN)), prev = afterSpace ? hist : hist.slice(0, -1);   // без недописанного слова
+  if (prev.length < 2 || !full) return false;
+  const a = prev[prev.length - 2], b = prev[prev.length - 1], c = full.toLowerCase();
+  for (let j = 0; j + 2 < prev.length; j++) if (prev[j] === a && prev[j + 1] === b && prev[j + 2] === c) return true;
+  return false;
+}
+
 async function answer(text) {
   const chars = [...text];
   if (!chars.length || !ch2id.has(chars[chars.length - 1])) return { suggestions: [], after_space: false, word_end: false, ms_model: 0 };   // последний знак модели не виден
   const t0 = performance.now(), ids = idsOf(text), lp = await sess.sync(ids), after_space = !alpha[ids[ids.length - 1]];
-  const res = lp ? await complete(sess, lp) : [];
+  const prefix = after_space ? '' : ((text.match(/\p{L}+$/u) || [''])[0]);
   // варианты — разные остатки по убыванию; пустой остаток («слово кончилось», Tab ставит пробел) — тоже вариант, кроме как после пробела
-  const word_end = res.length > 0 && res[0][0].length === 0, sugg = [], seen = new Set();
-  for (const [rest, l] of res) { const w = txt(rest); if ((!w && after_space) || seen.has(w)) continue; seen.add(w); sugg.push({ word: w, logp: l }); if (sugg.length === TOP) break; }
+  const pick = res => {
+    const out = [], seen = new Set();
+    for (const [rest, l] of res) {
+      const w = txt(rest); if ((!w && after_space) || seen.has(w)) continue; seen.add(w);
+      if (repeatsTrigram(text, prefix + w, after_space)) continue;
+      out.push({ word: w, logp: l }); if (out.length === TOP) break;
+    }
+    return out;
+  };
+  let res = lp ? await complete(sess, lp) : [], sugg = pick(res);
+  if (!sugg.length && res.length) { res = await complete(sess, lp, BEAM_WIDE); sugg = pick(res); }
+  const word_end = res.length > 0 && res[0][0].length === 0 && !repeatsTrigram(text, prefix, after_space);
   return { suggestions: sugg, after_space, word_end, ms_model: Math.round(performance.now() - t0) };
 }
 
