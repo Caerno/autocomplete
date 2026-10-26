@@ -18,12 +18,28 @@ async function fetchBuf(url, onBytes) {                       // загрузк�
   const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out;
 }
 
+// Модель (75 МБ) хранится в Cache Storage браузера под ключом «файл + хеш из meta.json»: повторный заход берёт её оттуда без сети.
+// HTTP-кэш Pages этого не обещает: срок 10 минут, дальше сверка каждого файла с сервером, а крупные файлы браузер может и не держать.
+// Другая модель — другой хеш — скачается заново; старые версии из кэша удаляются.
+const MODEL_CACHE = 'utl-model';
+async function cachedBuf(url, hash, onBytes) {               // → [байты, из кэша?]
+  let c = null; try { c = await caches.open(MODEL_CACHE); } catch (e) {}   // нет Cache Storage (приватный режим и т. п.) — просто сеть
+  const key = hash ? url + '?h=' + hash : null;
+  if (c && key) { const hit = await c.match(key); if (hit) { const b = new Uint8Array(await hit.arrayBuffer()); onBytes(b.length, true); return [b, true]; } }
+  const b = await fetchBuf(url, n => onBytes(n, false));
+  if (c && key) { try { await c.put(key, new Response(b)); } catch (e) {} }   // не хватило места — в следующий раз снова сеть
+  return [b, false];
+}
+async function dropOldModels(keep) {                          // удалить из кэша версии файлов с другим хешем
+  try { const c = await caches.open(MODEL_CACHE); for (const r of await c.keys()) if (!keep.has(r.url)) await c.delete(r); } catch (e) {}
+}
+
 async function init(base, threads, bodyFile) {
   ort.env.logLevel = 'error';                                  // предупреждения рантайма (например, «Unknown CPU vendor») — не в консоль
   ort.env.wasm.wasmPaths = new URL('ort/', self.location).href;    // абсолютный адрес: относительный ort грузит как имя модуля и падает
   ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, threads | 0) : 1;   // потоки — только при изоляции (COOP/COEP); по умолчанию 1: графы мелкие, 1 поток быстрее
   base = new URL(base, self.location).href;
-  mt = await (await fetch(base + 'meta.json')).json();
+  mt = await (await fetch(base + 'meta.json', { cache: 'no-cache' })).json();   // meta.json сверяется с сервером всегда: по её хешам видно, сменилась ли модель
   H = mt.heads; DH = mt.dh; V = mt.vocab; L = mt.local; CHUNK = mt.body.chunk;
   START = T('float32', Float32Array.from(mt.start), [1, 1, mt.C]);
   BODY0 = mt.body.state.map(nm => { const s = mt.body.shapes[nm]; return T('float32', new Float32Array(s.reduce((a, b) => a * b, 1)), s); });
@@ -33,12 +49,15 @@ async function init(base, threads, bodyFile) {
   // размеры — распакованные байты из meta.json: Pages отдаёт файлы сжатыми, и content-length (сжатый) с прочитанным потоком не сходится
   const sz = mt.files || {}; let total = Object.values(files).reduce((a, f) => a + (sz[f] || 0), 0), got = 0;
   const opt = { executionProviders: ['wasm'], graphOptimizationLevel: 'all' };
+  const hash = mt.hash || {}, keep = new Set(); let cached = 0;
   for (const [k, f] of Object.entries(files)) {
-    const buf = await fetchBuf(base + f, n => { got += n; postMessage({ ev: 'progress', got, total }); });
+    const [buf, hit] = await cachedBuf(base + f, hash[f], (n, fromCache) => { got += n; postMessage({ ev: 'progress', got, total, cached: fromCache }); });
+    cached += hit; if (hash[f]) keep.add(base + f + '?h=' + hash[f]);
     G[k] = await ort.InferenceSession.create(buf, opt);
   }
+  dropOldModels(keep);
   sess = new Session();
-  postMessage({ ev: 'ready', threads: ort.env.wasm.numThreads, mb: Math.round(total / 1e6) });
+  postMessage({ ev: 'ready', threads: ort.env.wasm.numThreads, mb: Math.round(total / 1e6), cached });
 }
 
 async function run(nm, args) {
@@ -248,16 +267,15 @@ const txt = ids => ids.map(i => mt.chars[i - mt.char0]).join('');
 
 // Приём подсказок подряд уводил в цикл («и в области … и в области …»): модель сама выбирает самое
 // вероятное продолжение, и в своём же тексте это повтор. Вариант, который вместе с двумя предыдущими словами повторяет тройку слов из последних
-// ~400 знаков, не предлагается; если запрещены все — тот же шаг с лучом 8 (в замере 8 окон × 40 подсказок: 0 % повторённых троек, ни одно окно
-// не замолчало); если пусто и так — подсказки нет.
+// ~400 знаков, не предлагается; если запрет убрал все варианты — тот же шаг с лучом 8; если пусто и так — подсказки нет. Замер на этом движке
+// (40 подсказок подряд в 4 окнах текста): повторённых троек 68 % → 0 %, без подсказки не осталось ни одно окно.
 const REPEAT_WIN = 400, BEAM_WIDE = 8;
 const wordsOf = s => s.toLowerCase().match(/\p{L}+/gu) || [];
-function repeatsTrigram(text, full, afterSpace) {             // full — целое слово (набранное начало + остаток)
+function trigramGuard(text, afterSpace) {                    // → full => true, если «два предыдущих слова + full» уже были тройкой (full — целое слово)
   const hist = wordsOf(text.slice(-REPEAT_WIN)), prev = afterSpace ? hist : hist.slice(0, -1);   // без недописанного слова
-  if (prev.length < 2 || !full) return false;
-  const a = prev[prev.length - 2], b = prev[prev.length - 1], c = full.toLowerCase();
-  for (let j = 0; j + 2 < prev.length; j++) if (prev[j] === a && prev[j + 1] === b && prev[j + 2] === c) return true;
-  return false;
+  const seen = new Set(); for (let j = 0; j + 2 < prev.length; j++) seen.add(prev[j] + ' ' + prev[j + 1] + ' ' + prev[j + 2]);
+  const ab = prev.length >= 2 ? prev[prev.length - 2] + ' ' + prev[prev.length - 1] + ' ' : null;
+  return full => ab !== null && !!full && seen.has(ab + full.toLowerCase());
 }
 
 async function answer(text) {
@@ -266,18 +284,19 @@ async function answer(text) {
   const t0 = performance.now(), ids = idsOf(text), lp = await sess.sync(ids), after_space = !alpha[ids[ids.length - 1]];
   const prefix = after_space ? '' : ((text.match(/\p{L}+$/u) || [''])[0]);
   // варианты — разные остатки по убыванию; пустой остаток («слово кончилось», Tab ставит пробел) — тоже вариант, кроме как после пробела
+  const repeats = trigramGuard(text, after_space); let blocked = 0;
   const pick = res => {
     const out = [], seen = new Set();
     for (const [rest, l] of res) {
       const w = txt(rest); if ((!w && after_space) || seen.has(w)) continue; seen.add(w);
-      if (repeatsTrigram(text, prefix + w, after_space)) continue;
+      if (repeats(prefix + w)) { blocked++; continue; }
       out.push({ word: w, logp: l }); if (out.length === TOP) break;
     }
     return out;
   };
   let res = lp ? await complete(sess, lp) : [], sugg = pick(res);
-  if (!sugg.length && res.length) { res = await complete(sess, lp, BEAM_WIDE); sugg = pick(res); }
-  const word_end = res.length > 0 && res[0][0].length === 0 && !repeatsTrigram(text, prefix, after_space);
+  if (!sugg.length && blocked) { res = await complete(sess, lp, BEAM_WIDE); sugg = pick(res); }   // шире — только если пусто из-за запрета повторов
+  const word_end = sugg.length > 0 && sugg[0].word === '';          // «слово дописано» — когда первым показан вариант «конец слова»
   return { suggestions: sugg, after_space, word_end, ms_model: Math.round(performance.now() - t0) };
 }
 

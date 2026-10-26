@@ -120,7 +120,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
         <div class="in">
           <ul>
             <li><b>Слабая подсказка с первой буквы:</b> сила модели именно в том, чтобы дописать слово после 2-3 символов.</li>
-            <li><b>Риск зацикливания:</b> если принимать подсказки подряд, модель начнёт повторять одни и те же фразы. «Голова копирования» только усиливает этот эффект, защиты от повторов пока нет.</li>
+            <li><b>Риск зацикливания:</b> если принимать подсказки подряд, модель начнёт повторять одни и те же фразы. «Голова копирования» только усиливает этот эффект.</li>
             <li><b>Много мусорных вариантов после пробела:</b> модель угадывает слово до первой буквы только в 1 из 6 случаев, но показывает варианты всегда — порога уверенности пока нет.</li>
             <li><b>Смысл теряется на дистанции:</b> модель маленькая. Грамматику она держит хорошо, но длинные куски текста быстро превращаются в бред. Дальней памяти тоже нет (кроме точных повторов букв).</li>
             <li><b>Может нагрубить:</b> обучение шло на веб-текстах, которые чистили от мусора и дублей, но не от грубостей.</li>
@@ -181,7 +181,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
         <div class="in">
           <ul>
             <li><b>Weak from the first letter:</b> the model's strength is finishing a word after 2–3 characters.</li>
-            <li><b>Risk of loops:</b> if you keep accepting suggestions, the model starts repeating the same phrases. The copy head makes this worse; there is no repetition guard yet.</li>
+            <li><b>Risk of loops:</b> if you keep accepting suggestions, the model starts repeating the same phrases. The copy head makes this worse.</li>
             <li><b>Many junk variants after a space:</b> the model guesses the word before the first letter only one time in six, but always shows variants; there is no confidence threshold yet.</li>
             <li><b>Meaning fades over distance:</b> the model is small. It keeps grammar well, but long stretches of text quickly turn into nonsense. There is no long-range memory either (apart from exact repeats of letters).</li>
             <li><b>It can be rude:</b> it was trained on web text that was cleaned of junk and duplicates, but not of rudeness.</li>
@@ -198,11 +198,11 @@ const t=document.getElementById('t'),mi=document.getElementById('mi'),vb=documen
 const TX={
   ru:{title:'Автопродолжение',eyebrow:'Автопродолжение · v2.1',h1:'Вы печатаете — модель дописывает',
       lead:'Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Модель работает прямо в браузере.',
-      ph:'Начните печатать по-русски…',load:'Загрузка модели…',prog:(a,b)=>'Загрузка модели: '+a+' из '+b+' МБ',ready:'Модель готова',err:'Ошибка: ',
+      ph:'Начните печатать по-русски…',load:'Загрузка модели…',prog:(a,b)=>'Загрузка модели: '+a+' из '+b+' МБ',cache:'Модель из кэша…',ready:'Модель готова',err:'Ошибка: ',
       end:'слово дописано',next:'следующее слово',rest:'остаток слова'},
   en:{title:'Autocomplete',eyebrow:'Autocomplete · v2.1',h1:'You type — the model finishes',
       lead:'The rest of the word is shown in grey, and after a space, the next word. Tab to accept, ↑ and ↓ to cycle through variants, Esc to hide. You can also just click the variants below the field. The model runs right in your browser.',
-      ph:'Start typing in English…',load:'Loading the model…',prog:(a,b)=>'Loading the model: '+a+' of '+b+' MB',ready:'Model ready',err:'Error: ',
+      ph:'Start typing in English…',load:'Loading the model…',prog:(a,b)=>'Loading the model: '+a+' of '+b+' MB',cache:'Model from cache…',ready:'Model ready',err:'Error: ',
       end:'word finished',next:'next word',rest:'rest of the word'}};
 const ROOT=location.pathname.replace(/\/(ru|en)\/?$/,'/').replace(/[^/]*$/,'');   // папка сайта: engine.js, ort/, model/ лежат в ней
 let lang=(location.pathname.match(/\/(ru|en)\/?$/)||[])[1]||((navigator.languages||[navigator.language||'']).some(l=>/^ru/i.test(l))?'ru':'en');
@@ -246,8 +246,8 @@ function pump(){
 }
 eng.onmessage=e=>{
   const m=e.data;
-  if(m.ev==='progress'){status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}
-  if(m.ev==='ready'){ready=true;status('ready');t.placeholder=T().ph;document.getElementById('box').classList.remove('wait');t.dataset.ready='1';t.dataset.threads=m.threads;schedule();return}
+  if(m.ev==='progress'){if(m.cached)status('cache');else status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}   // из кэша — без счётчика мегабайт
+  if(m.ev==='ready'){ready=true;status('ready');t.placeholder=T().ph;document.getElementById('box').classList.remove('wait');t.dataset.ready='1';t.dataset.threads=m.threads;t.dataset.cached=m.cached;schedule();return}
   if(m.ev==='error'){busy=false;status('err',m.error.split('\n')[0]);return}
   if(m.ev!=='answer')return;
   busy=false;
