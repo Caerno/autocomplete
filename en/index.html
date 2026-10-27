@@ -8,7 +8,7 @@
   --sans:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:'Geist Mono',ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,'SF Mono',Menlo,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans)}
-main{max-width:780px;margin:0 auto;padding:clamp(28px,9vh,80px) clamp(16px,5vw,40px)}
+main{position:relative;z-index:1;max-width:780px;margin:0 auto;padding:clamp(28px,9vh,80px) clamp(16px,5vw,40px)}
 .eyebrow{font:11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
 .top{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
 .lang{font:11px var(--mono);letter-spacing:.12em;color:var(--dim);margin:0 0 14px;white-space:nowrap}
@@ -35,6 +35,9 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
 .vars button.on{color:var(--ink);border-bottom:1px solid var(--accent)}
 .vars button:hover,.vars button:focus-visible{color:var(--ink);border-bottom-color:var(--accent);outline:0}
 .st{font:12px/1.5 var(--mono);color:var(--dim);margin:6px 2px 0;min-height:1.5em}
+.st b{color:var(--accent);font-weight:600}
+/* загрузка модели: холст за страницей — буквы падают вокруг поля, строка знаков на месте вариантов; после готовности убирается */
+#rain{position:absolute;left:0;top:0;z-index:0;pointer-events:none}
 /* о модели — как на главной: видно введение и «Коротко», подробности разделов под «+» (details, как FAQ главной) */
 .about{margin-top:clamp(56px,9vh,96px);padding-top:clamp(40px,6vh,64px);border-top:1px solid var(--line)}
 .about h2{font-size:clamp(24px,3vw,32px);letter-spacing:-.02em;line-height:1.15;margin:0 0 16px}
@@ -57,6 +60,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
 .faq li b,.faq p b{color:var(--ink);font-weight:600}
 @media(max-width:520px){.mi,.t{font-size:18px;padding:14px 14px}.facts{grid-template-columns:repeat(2,1fr)}.faq .in{padding-left:0}}
 </style>
+<canvas id="rain" aria-hidden="true"></canvas>
 <main>
   <div class="top"><p class="eyebrow" data-t="eyebrow">Автопродолжение · v2.1</p><p class="lang"><a data-l="ru">RU</a> · <a data-l="en">EN</a></p></div>
   <h1 data-t="h1">Вы печатаете — модель дописывает</h1>
@@ -208,7 +212,7 @@ const ROOT=location.pathname.replace(/\/(ru|en)\/?$/,'/').replace(/[^/]*$/,''); 
 let lang=(location.pathname.match(/\/(ru|en)\/?$/)||[])[1]||((navigator.languages||[navigator.language||'']).some(l=>/^ru/i.test(l))?'ru':'en');
 let stKey='load',stArgs=[];
 const T=()=>TX[lang];
-function status(k,...a){stKey=k;stArgs=a;const v=T()[k];st.textContent=typeof v==='function'?v(...a):v+(a[0]||'')}
+function status(k,...a){stKey=k;stArgs=a;const v=T()[k],s=typeof v==='function'?v(...a):v+(a[0]||'');st.innerHTML=k==='prog'?esc(s).replace(/\d+/g,'<b>$&</b>'):esc(s)}   // цифры загрузки — оранжевым
 function setLang(l,push){
   lang=l;document.documentElement.lang=l;document.title=T().title;
   document.querySelectorAll('[data-t]').forEach(el=>{el.textContent=T()[el.dataset.t]});
@@ -244,11 +248,80 @@ function pump(){
   if(!text||!atEnd()||off){clear();paint();return}
   busy=true;again=false;eng.postMessage({cmd:'complete',id:++seq,text});
 }
+// Загрузка модели (27.10, его выбор из web/proto/loader-rain.html): пока грузится, буквы алфавита модели падают вокруг поля —
+// слева, справа и сверху (над полем — только в зазоре под абзацем, шапку не задевают); снизу, на месте списка вариантов, — строка
+// знаков главной (RAMP из caerno-site/src/field.js), залитая на долю скачанного; упавшая буква вспыхивает в строке.
+// Модель готова — дождь кончается, строка вспыхивает целиком и гаснет, холст убирается. Без анимации в системе — только строка.
+const LOADER=(()=>{
+  const RAMP=' ·:;+o08$@',FS=14,MONO='"Geist Mono",ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,"SF Mono",Menlo,monospace';
+  const ABC=Array.from("оеаинтсрвeлкaмдoпinуtsrяыьзгбldчcйuхmжhpюyшwцgfbzіkщфvВэСПjОНКАSИТAМДCPóTРIqЕEёMБłDГxRLNWBЛęHУąЗOFżЭíGїáЧUśФХЯєéVJKćъЦШЖXñYZЮńúЫЙЬІQüЩźЁŚЄґŻŁÁÓÉЇҐÍĘЪĄÚŹÜÑĆŃաაاიلיוնαəეրոהτοსեιيεלمრիνתרმوოמنւבאლմდნσשρرتıπկბκηვبςנјμعυտםთқუעةյدվهλսדفכחίسקგўհقլפكόάحأթტցέçγშգքդδңғסěöკşպגხωجըήცřצטղןχžàբծქռθýէզčصύწىזãطөشұèšշخәүφპზფäώإխњذყԱضևزůثβչğღћљջךძغՀժξêձئჩփΑءΕζҚâՆճΣõºΤظђΚΟՄΠİჯԵףօôßՍΜψƏΗჰԳՈΙëՏآץΔԻـՎჭՐԿùՊؤΝԴΓՇჲԲČӱòЈԾՅŞňìΛӘΥīɑԹԷֆΒΡჟïµªťჳԽ"),REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cv=document.getElementById('rain'),ctx=cv.getContext('2d'),box=document.getElementById('box');
+  const SH=[...Array(17)].map((_,i)=>'rgb('+[[0x3A,0xE8],[0x3C,0xE6],[0x40,0xE1]].map(([a,b])=>Math.round(a+(b-a)*i/16))+')');   // серый ряд field.js
+  let G=null,p=0,target=0,drops=[],flash=new Float32Array(0),t0=performance.now(),last=0,fin=false,endT=-1,raf=0,gone=false;
+  function spawn(d,anywhere){                                          // столбец — гуще у поля, реже к краям экрана
+    const r=Math.random()*G.cum[G.cols-1];let x=0;while(G.cum[x]<r)x++;
+    d.x=x;d.y=anywhere?Math.random()*G.rows*G.ch:-G.ch*(1+Math.random()*4);d.v=60+Math.random()*100;
+    d.c=ABC[Math.floor(Math.pow(Math.random(),2.2)*ABC.length)];d.o=Math.random()<.25;d.gone=false;return d;   // частые буквы чаще
+  }
+  function layout(){
+    const b=box.getBoundingClientRect(),v=vb.getBoundingClientRect(),ld=document.querySelector('.lead').getBoundingClientRect(),sy=scrollY;
+    ctx.font=FS+'px '+MONO;
+    const cw=ctx.measureText('0').width||FS*.6,ch=Math.round(FS*1.24),side=Math.max(0,Math.min(240,(document.documentElement.clientWidth-b.width)/2-8));
+    const barY=v.top+sy+(v.height-ch)/2,rows=Math.max(1,Math.floor(barY/ch)),top=barY-rows*ch;   // строка — посередине места вариантов
+    const cols=Math.floor((b.width+2*side)/cw),W=cols*cw,L=b.left+b.width/2-W/2,H=(rows+1)*ch,dpr=Math.min(devicePixelRatio||1,2);
+    Object.assign(cv.style,{left:L+'px',top:top+'px',width:W+'px',height:H+'px'});
+    cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
+    const bx0=b.left-L-14,bx1=b.right-L+14,hy=ld.bottom+sy-top+4,by=b.top+sy-top-4,occ=new Uint8Array(cols*rows);   // где букв не видно: шапка и поле
+    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const X=(x+.5)*cw,Y=(y+.5)*ch;if(X>bx0&&X<bx1&&(Y<hy||Y>by))occ[y*cols+x]=1}
+    const cum=new Float32Array(cols);let w=0;
+    for(let x=0;x<cols;x++){const X=(x+.5)*cw,d=X<bx0?bx0-X:X>bx1?X-bx1:0;w+=Math.exp(-d/170);cum[x]=w}
+    G={cw,ch,cols,rows,W,H,occ,cum};
+    if(flash.length!==cols)flash=new Float32Array(cols);
+    const n=REDUCED||fin?0:Math.round(w*rows*.1);
+    while(drops.length<n)drops.push(spawn({},true));
+    drops.length=n;drops.forEach(d=>{if(d.x>=cols)spawn(d,true)});
+  }
+  function frame(now){
+    const t=(now-t0)/1000,dt=Math.min(.05,Math.max(0,t-last));last=t;
+    p=REDUCED?target:p+(target-p)*Math.min(1,dt*5);
+    if(fin&&endT<0&&p>.99)endT=t;
+    const fade=endT<0?1:1-Math.max(0,(t-endT-.35)/.6);
+    if(fade<=0){stop();return}
+    const {cw,ch,cols,rows,W,H,occ}=G;
+    ctx.clearRect(0,0,W,H);ctx.font=FS+'px '+MONO;ctx.textBaseline='middle';ctx.globalAlpha=fade;
+    for(const d of drops){
+      if(d.gone)continue;
+      d.y+=d.v*dt;let r=Math.floor(d.y/ch);
+      if(r>=rows){flash[d.x]=1;if(fin){d.gone=true;continue}spawn(d,false);r=Math.floor(d.y/ch)}   // упала в строку — вспышка, новая сверху
+      for(let k=2;k>=0;k--){const y=r-k;if(y<0||occ[y*cols+d.x])continue;                         // буква и след из двух точек над ней
+        ctx.fillStyle=k?SH[k===1?7:4]:d.o?'#E0703A':SH[16];ctx.fillText(k?(k===1?':':'·'):d.c,d.x*cw,y*ch+ch/2)}
+    }
+    const front=p*cols,y=rows*ch+ch/2,all=endT>=0&&t-endT<.35;
+    for(let x=0;x<cols;x++){
+      const df=front-x,f=flash[x];flash[x]*=Math.exp(-dt/.25);
+      let s,a=all||f>.75;
+      if(df<0)s=.4+f*1.5;
+      else if(df<4){s=1.4+Math.random()*1.6;a=a||Math.random()<.6}                                  // голова — мельтешит, оранжевая
+      else s=1.05+.75*(.5+.3*Math.sin(x*.45-t*4)+.2*Math.sin(x*.11+t*1.3))+f;                       // залитое переливается
+      const g=RAMP[Math.min(9,Math.floor(s*3.1))];if(g===' ')continue;
+      ctx.fillStyle=a?'#E0703A':SH[Math.round(Math.min(1,s*.85)*16)];ctx.fillText(g,x*cw,y);
+    }
+    if(!REDUCED)raf=requestAnimationFrame(frame);
+  }
+  function stop(){gone=true;cancelAnimationFrame(raf);ro.disconnect();cv.remove()}
+  const ro=new ResizeObserver(()=>{if(!gone){layout();if(REDUCED)frame(performance.now())}});
+  layout();ro.observe(document.body);
+  if(document.fonts)document.fonts.ready.then(()=>{if(!gone)layout()});
+  if(REDUCED)frame(performance.now());else raf=requestAnimationFrame(frame);
+  return{progress(f){if(gone)return;target=Math.max(target,Math.min(1,f));if(REDUCED)frame(performance.now())},
+         done(){if(gone)return;fin=true;target=1;if(REDUCED)stop()}};
+})();
+function onReady(m){ready=true;LOADER.done();status('ready');t.placeholder=T().ph;document.getElementById('box').classList.remove('wait');t.dataset.ready='1';t.dataset.threads=m.threads;t.dataset.cached=m.cached;schedule()}
 eng.onmessage=e=>{
   const m=e.data;
-  if(m.ev==='progress'){if(m.cached)status('cache');else status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}   // из кэша — без счётчика мегабайт
-  if(m.ev==='ready'){ready=true;status('ready');t.placeholder=T().ph;document.getElementById('box').classList.remove('wait');t.dataset.ready='1';t.dataset.threads=m.threads;t.dataset.cached=m.cached;schedule();return}
-  if(m.ev==='error'){busy=false;status('err',m.error.split('\n')[0]);return}
+  if(m.ev==='progress'){if(DEMO)return;LOADER.progress(m.got/m.total);if(m.cached)status('cache');else status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}   // из кэша — без счётчика мегабайт
+  if(m.ev==='ready'){if(DEMO&&!demoEnd)held=m;else onReady(m);return}
+  if(m.ev==='error'){busy=false;LOADER.done();status('err',m.error.split('\n')[0]);return}
   if(m.ev!=='answer')return;
   busy=false;
   if(t.value===m.text&&atEnd()&&!off){
@@ -260,6 +333,10 @@ eng.onmessage=e=>{
   if(again)schedule();
 };
 const qs=new URLSearchParams(location.search);                       // ?threads=4 (нужна изоляция COOP/COEP), ?body=body.onnx (fp32, для проверок)
+// ?loader=20 — загрузка на экране растянута на 20 с (посмотреть анимацию, когда модель приходит из кэша за секунду); готовность ждёт конца показа
+const DEMO=Math.max(0,+qs.get('loader')||0);let held=null,demoEnd=false;
+if(DEMO){const T0=performance.now(),tick=setInterval(()=>{const u=Math.min(1,(performance.now()-T0)/DEMO/1000);
+  LOADER.progress(u);status('prog',Math.round(u*75),75);if(u>=1){clearInterval(tick);demoEnd=true;if(held)onReady(held)}},100)}
 eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined});
 function accept(rest){                                                 // дописать остаток и пробел в конец поля (Ctrl+Z отменяет)
   clear();t.focus();t.setSelectionRange(t.value.length,t.value.length);
