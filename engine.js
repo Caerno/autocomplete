@@ -309,6 +309,8 @@ async function answer(text) {
 // слово помечается, если лучший кандидат обходит набранное на порог языка. Настройки и файлы — model/corr.json (web/model/export_corr.py).
 const CORR_CACHE = 'utl-corr', ABORT = Symbol('abort'); let C = null, chk = null, urgent = 0;
 
+const yo = w => w.replace(/ё/g, 'е');                         // «живет» и «живёт» — одно слово
+
 function parseWords(text) {                                   // «слово\tчастота» → слова по длине, порядок файла сохранён
   const byLen = new Map(), cnt = new Map();
   for (const line of text.split('\n')) {
@@ -316,7 +318,7 @@ function parseWords(text) {                                   // «слово\t�
     const w = line.slice(0, k), n = [...w].length; cnt.set(w, +line.slice(k + 1));
     if (!byLen.has(n)) byLen.set(n, []); byLen.get(n).push(w);
   }
-  return { byLen, cnt };
+  return { byLen, cnt, known: new Set([...cnt.keys()].map(yo)) };
 }
 
 async function loadCorr(base) {                               // файлы качаются параллельно подсказкам, граф создаётся в очереди сообщений
@@ -375,6 +377,7 @@ async function lmScores(left, words) {                        // log p кажд�
 
 async function checkWord(left, word, debug) {                 // → {fixes: [слова по убыванию счёта]} — пусто, если слово не помечено
   const typed = word.toLowerCase(), lang = /^[а-яё]+$/.test(typed) ? 'ru' : /^[a-z]+$/.test(typed) ? 'en' : null; if (!C || !lang) return { fixes: [] };
+  if (C.words[lang].known.has(yo(typed))) return { fixes: [] };   // слово из словаря не помечаем: без этого 9 % чистых слов получали зигзаг (ncm 46 §5.9)
   const cands = candidates(typed, C.words[lang]); if (!cands.length) return { fixes: [] };
   const list = [typed, ...cands], lm = await lmScores(left, list); if (!lm) return { fixes: [] };
   const order = list.map((_, i) => i).sort((a, b) => lm[b] - lm[a]), best = order[0];

@@ -249,7 +249,7 @@ function tokens(){
   const v=t.value;if(toksFor===v)return toks;toksFor=v;toks=[];
   for(const m of v.matchAll(/\p{L}+/gu)){
     const s=m.index,e=s+m[0].length,a=v[s-1]||'',b=v[e];
-    if(b===undefined||[...m[0]].length<3||/[-'’\d_]/.test(a+b)||!/^(\p{Script=Cyrillic}+|[A-Za-z]+)$/u.test(m[0]))continue;
+    if(b===undefined||[...m[0]].length<3||/^\p{Lu}/u.test(m[0])||/[-'’\d_]/.test(a+b)||!/^(\p{Script=Cyrillic}+|[A-Za-z]+)$/u.test(m[0]))continue;
     const left=v.slice(0,s).replace(/\s+/g,' ').trimEnd();if(!left)continue;
     toks.push({s,e,w:m[0],left,key:left.slice(-420)+'\0'+m[0].toLowerCase()});
   }
