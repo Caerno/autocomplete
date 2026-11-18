@@ -125,7 +125,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
           <ul>
             <li><b>Слабая подсказка с первой буквы:</b> сила модели именно в том, чтобы дописать слово после 2-3 символов.</li>
             <li><b>Риск зацикливания:</b> если принимать подсказки подряд, модель начнёт повторять одни и те же фразы. «Голова копирования» только усиливает этот эффект.</li>
-            <li><b>Много мусорных вариантов после пробела:</b> модель угадывает слово до первой буквы только в 1 из 6 случаев, но показывает варианты всегда — порога уверенности пока нет.</li>
+            <li><b>Часто молчит после пробела:</b> модель угадывает слово до первой буквы только в 1 из 6 случаев, поэтому подсказка появляется, только когда первый вариант получает вероятность от 33 %.</li>
             <li><b>Смысл теряется на дистанции:</b> модель маленькая. Грамматику она держит хорошо, но длинные куски текста быстро превращаются в бред. Дальней памяти тоже нет (кроме точных повторов букв).</li>
             <li><b>Может нагрубить:</b> обучение шло на веб-текстах, которые чистили от мусора и дублей, но не от грубостей.</li>
             <li><b>Тяжёлый первый запуск:</b> придётся скачать 75 МБ. На телефонах скорость пока не замеряли.</li>
@@ -186,7 +186,7 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
           <ul>
             <li><b>Weak from the first letter:</b> the model's strength is finishing a word after 2–3 characters.</li>
             <li><b>Risk of loops:</b> if you keep accepting suggestions, the model starts repeating the same phrases. The copy head makes this worse.</li>
-            <li><b>Many junk variants after a space:</b> the model guesses the word before the first letter only one time in six, but always shows variants; there is no confidence threshold yet.</li>
+            <li><b>Often silent after a space:</b> the model guesses the word before the first letter only one time in six, so a suggestion appears only when the first variant gets a probability of at least 33%.</li>
             <li><b>Meaning fades over distance:</b> the model is small. It keeps grammar well, but long stretches of text quickly turn into nonsense. There is no long-range memory either (apart from exact repeats of letters).</li>
             <li><b>It can be rude:</b> it was trained on web text that was cleaned of junk and duplicates, but not of rudeness.</li>
             <li><b>Heavy first launch:</b> you need to download 75 MB. Speed on phones has not been measured yet.</li>
@@ -327,7 +327,7 @@ eng.onmessage=e=>{
   if(t.value===m.text&&atEnd()&&!off){
     vars=m.suggestions.map(x=>x.word);sel=0;pre=m.after_space?'':((m.text.match(/\p{L}+$/u)||[''])[0]);paint();
     t.dataset.answered=m.text;                                        // для тестов: ответ применён к этому тексту
-    status(m.word_end?'end':m.after_space?'next':'rest');
+    status(!vars.length?'ready':m.word_end?'end':m.after_space?'next':'rest');
     t.dataset.ms=m.ms_model;                                           // время ответа — для тестов, на экран не выводится
   }else again=true;
   if(again)schedule();
@@ -337,7 +337,7 @@ const qs=new URLSearchParams(location.search);                       // ?threads
 const DEMO=Math.max(0,+qs.get('loader')||0);let held=null,demoEnd=false;
 if(DEMO){const T0=performance.now(),tick=setInterval(()=>{const u=Math.min(1,(performance.now()-T0)/DEMO/1000);
   LOADER.progress(u);status('prog',Math.round(u*75),75);if(u>=1){clearInterval(tick);demoEnd=true;if(held)onReady(held)}},100)}
-eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined});
+eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined,gate:qs.get('gate')!=='0'});
 function accept(rest){                                                 // дописать остаток и пробел в конец поля (Ctrl+Z отменяет)
   clear();t.focus();t.setSelectionRange(t.value.length,t.value.length);
   if(!document.execCommand('insertText',false,rest+' ')){t.setRangeText(rest+' ',t.value.length,t.value.length,'end');t.dispatchEvent(new Event('input'))}

@@ -278,6 +278,9 @@ function trigramGuard(text, afterSpace) {                    // → full => true
   return full => ab !== null && !!full && seen.has(ab + full.toLowerCase());
 }
 
+// Порог показа: подсказки нет, если вероятность первого варианта ниже 0.33.
+const MIN_LOGP = Math.log(0.33); let gateOn = true;                // ?gate=0 — без порога, для тестов поля
+
 async function answer(text) {
   const chars = [...text];
   if (!chars.length || !ch2id.has(chars[chars.length - 1])) return { suggestions: [], after_space: false, word_end: false, ms_model: 0 };   // последний знак модели не виден
@@ -296,6 +299,7 @@ async function answer(text) {
   };
   let res = lp ? await complete(sess, lp) : [], sugg = pick(res);
   if (!sugg.length && blocked) { res = await complete(sess, lp, BEAM_WIDE); sugg = pick(res); }   // шире — только если пусто из-за запрета повторов
+  if (gateOn && sugg.length && sugg[0].logp < MIN_LOGP) sugg = [];
   const word_end = sugg.length > 0 && sugg[0].word === '';          // «слово дописано» — когда первым показан вариант «конец слова»
   return { suggestions: sugg, after_space, word_end, ms_model: Math.round(performance.now() - t0) };
 }
@@ -305,7 +309,7 @@ onmessage = ev => {
   const m = ev.data;
   queue = queue.then(async () => {
     try {
-      if (m.cmd === 'init') await init(m.base || 'model/', m.threads || 1, m.body);
+      if (m.cmd === 'init') gateOn = m.gate !== false, await init(m.base || 'model/', m.threads || 1, m.body);
       else if (m.cmd === 'complete') postMessage({ ev: 'answer', id: m.id, text: m.text, ...(await answer(m.text)) });
       else if (m.cmd === 'trace') {                           // для тестов: лог-вероятность каждой следующей буквы текста (без E) и последняя строка (с E)
         const ids = idsOf(m.text), r = new Runner(), each = []; let lg = null;

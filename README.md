@@ -16,7 +16,7 @@ it predicts the next word. Press Tab to accept, ↑ ↓ to cycle through options
 
 - Trained on a mix of 20 languages, but quality was evaluated exclusively on Russian web text.
 - The initial load requires a ~75 MB download. Subsequent visits skip the download (browser cache); the model still takes a few seconds to start.
-- All generated suggestions are displayed; there is no confidence threshold yet.
+- A suggestion appears only when the first variant has a probability of at least 0.33.
 
 ## Privacy
 
