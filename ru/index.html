@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Автопродолжение</title>
 <style>
-:root{--bg:#121315;--bg2:#17181B;--ink:#E8E6E1;--mid:#B9B7B2;--dim:#7C7F85;--line:#26282C;--accent:#E0703A;
+:root{--bg:#121315;--bg2:#17181B;--ink:#E8E6E1;--mid:#B9B7B2;--dim:#7C7F85;--line:#26282C;--accent:#E0703A;--fix:#F2555A;
   --sans:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:'Geist Mono',ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,'SF Mono',Menlo,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans)}
@@ -28,7 +28,16 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
 .t{position:absolute;inset:0;width:100%;height:100%;resize:none;overflow:hidden;background:transparent;color:var(--ink);outline:0;caret-color:var(--accent)}
 .t::placeholder{color:var(--dim)}
 .g{color:var(--dim)}
-.vars{margin:12px 2px 0;min-height:1.6em;color:var(--dim);font-size:16px}
+.under{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 24px;margin:12px 2px 0;min-height:1.6em}
+.vars{margin:0;flex:1 1 auto;min-width:0;min-height:1.6em;color:var(--dim);font-size:16px}
+/* исправления: справа от автодонабора и своим цветом; слово под вопросом подчёркнуто зигзагом в зеркале поля */
+.fixes{margin:0 0 0 auto;flex:0 1 auto;text-align:right;color:var(--fix);font-size:16px}
+.fixes:empty{display:none}
+.fixes .k{font:12px var(--mono);margin-right:6px}
+.fixes button{appearance:none;background:none;border:0;padding:0 2px;margin:0;font:inherit;color:var(--fix);cursor:pointer;border-bottom:1px dotted var(--fix)}
+.fixes button.on{font-weight:600;border-bottom-style:solid}
+.fixes button:hover,.fixes button:focus-visible{border-bottom-style:solid;outline:0}
+.bad{text-decoration:underline wavy var(--fix) 1.5px;text-underline-offset:4px;text-decoration-skip-ink:none}
 .vars .k{font:12px var(--mono);margin-right:6px}
 .vars button{appearance:none;background:none;border:0;padding:0 2px;margin:0;font:inherit;color:var(--mid);cursor:pointer;border-bottom:1px dotted #4A4D53}
 .vars button b{color:var(--ink);font-weight:600}
@@ -64,12 +73,12 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
 <main>
   <div class="top"><p class="eyebrow" data-t="eyebrow">Автопродолжение · v2.1</p><p class="lang"><a data-l="ru">RU</a> · <a data-l="en">EN</a></p></div>
   <h1 data-t="h1">Вы печатаете — модель дописывает</h1>
-  <p class="lead" data-t="lead">Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Модель работает прямо в браузере.</p>
+  <p class="lead" data-t="lead">Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Возможные опечатки подчёркнуты красным: поставьте курсор на слово, и справа под полем появятся исправления. Модель работает прямо в браузере.</p>
   <div class="box wait" id="box">
     <div class="mi" id="mi" aria-hidden="true"></div>
     <textarea class="t" id="t" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="" autofocus></textarea>
   </div>
-  <p class="vars" id="vars"></p>
+  <div class="under"><p class="vars" id="vars"></p><p class="fixes" id="fx"></p></div>
   <p class="st" id="st"></p>
 
   <section class="about" id="about"></section>
@@ -197,17 +206,17 @@ h1{font-size:clamp(24px,3.6vw,34px);letter-spacing:-.02em;line-height:1.2;margin
     </div>
 </template>
 <script>
-const t=document.getElementById('t'),mi=document.getElementById('mi'),vb=document.getElementById('vars'),st=document.getElementById('st');
+const t=document.getElementById('t'),mi=document.getElementById('mi'),vb=document.getElementById('vars'),fb=document.getElementById('fx'),st=document.getElementById('st');
 // язык оформления: /ru/ или /en/ в адресе; в корне — по языку браузера. Модель одна и та же — переключатель меняет только тексты страницы
 const TX={
   ru:{title:'Автопродолжение',eyebrow:'Автопродолжение · v2.1',h1:'Вы печатаете — модель дописывает',
-      lead:'Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Модель работает прямо в браузере.',
+      lead:'Серым цветом подсвечивается остаток слова, а после пробела — следующее слово. Tab — принять, ↑ и ↓ — листать варианты, Esc — скрыть. Варианты под полем можно просто нажимать. Возможные опечатки подчёркнуты красным: поставьте курсор на слово, и справа под полем появятся исправления. Модель работает прямо в браузере.',
       ph:'Начните печатать по-русски…',load:'Загрузка модели…',prog:(a,b)=>'Загрузка модели: '+a+' из '+b+' МБ',cache:'Модель из кэша…',ready:'Модель готова',err:'Ошибка: ',
-      end:'слово дописано',next:'следующее слово',rest:'остаток слова'},
+      end:'слово дописано',next:'следующее слово',rest:'остаток слова',fix:'исправить'},
   en:{title:'Autocomplete',eyebrow:'Autocomplete · v2.1',h1:'You type — the model finishes',
-      lead:'The rest of the word is shown in grey, and after a space, the next word. Tab to accept, ↑ and ↓ to cycle through variants, Esc to hide. You can also just click the variants below the field. The model runs right in your browser.',
+      lead:'The rest of the word is shown in grey, and after a space, the next word. Tab to accept, ↑ and ↓ to cycle through variants, Esc to hide. You can also just click the variants below the field. Possible typos are underlined in red: put the cursor on a word to see corrections on the right below the field. The model runs right in your browser.',
       ph:'Start typing in English…',load:'Loading the model…',prog:(a,b)=>'Loading the model: '+a+' of '+b+' MB',cache:'Model from cache…',ready:'Model ready',err:'Error: ',
-      end:'word finished',next:'next word',rest:'rest of the word'}};
+      end:'word finished',next:'next word',rest:'rest of the word',fix:'correct'}};
 const ROOT=location.pathname.replace(/\/(ru|en)\/?$/,'/').replace(/[^/]*$/,'');   // папка сайта: engine.js, ort/, model/ лежат в ней
 let lang=(location.pathname.match(/\/(ru|en)\/?$/)||[])[1]||((navigator.languages||[navigator.language||'']).some(l=>/^ru/i.test(l))?'ru':'en');
 let stKey='load',stArgs=[];
@@ -222,6 +231,7 @@ function setLang(l,push){
   ab.replaceChildren(document.getElementById('about-'+l).content.cloneNode(true));
   ab.querySelectorAll('details').forEach((d,i)=>{d.open=!!open[i]});
   if(st.textContent)status(stKey,...stArgs);
+  if(ready)paint();
   const url=ROOT+l+'/'+location.search;if(location.pathname+location.search!==url)history[push?'pushState':'replaceState'](null,'',url);
 }
 document.querySelectorAll('.lang a').forEach(a=>{a.href=ROOT+a.dataset.l+'/';a.addEventListener('click',e=>{e.preventDefault();setLang(a.dataset.l,true)})});
@@ -232,12 +242,48 @@ let vars=[],sel=0,pre='',ready=false,busy=false,again=false,off=false,timer=0,se
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const atEnd=()=>t.selectionStart===t.selectionEnd&&t.selectionEnd===t.value.length;
 const ghost=()=>vars[sel]||'';
+// Исправления: проверяются законченные слова (за словом уже есть другой знак), по порядку слева направо, когда поле свободно. FX — ответы движка по слову и его левой части.
+const FX=new Map(),NOFIX=[];let fxReady=false,fxBusy=false,fxTimer=0,fxSel=0,fxWord='',toks=[],toksFor=null,lastFx='';
+const fxOf=x=>FX.get(x.key)||NOFIX;
+function tokens(){
+  const v=t.value;if(toksFor===v)return toks;toksFor=v;toks=[];
+  for(const m of v.matchAll(/\p{L}+/gu)){
+    const s=m.index,e=s+m[0].length,a=v[s-1]||'',b=v[e];
+    if(b===undefined||[...m[0]].length<3||/[-'’\d_]/.test(a+b)||!/^(\p{Script=Cyrillic}+|[A-Za-z]+)$/u.test(m[0]))continue;
+    const left=v.slice(0,s).replace(/\s+/g,' ').trimEnd();if(!left)continue;
+    toks.push({s,e,w:m[0],left,key:left.slice(-420)+'\0'+m[0].toLowerCase()});
+  }
+  return toks;
+}
+function fxCur(){                                                  // слово под курсором; в конце текста — и только что законченное слово
+  if(t.selectionStart!==t.selectionEnd)return null;
+  const c=t.selectionEnd,bad=tokens().filter(x=>fxOf(x).length),on=bad.find(x=>c>=x.s&&c<=x.e);if(on)return on;
+  const x=bad[bad.length-1];return x&&atEnd()&&/^[^\p{L}\d]{1,3}$/u.test(t.value.slice(x.e,c))?x:null;
+}
+const cased=(typed,w)=>typed.length>1&&typed===typed.toUpperCase()?w.toUpperCase():typed[0]===typed[0].toUpperCase()?w[0].toUpperCase()+w.slice(1):w;
+function fxSchedule(ms){clearTimeout(fxTimer);fxTimer=setTimeout(fxPump,ms)}
+function fxPump(){
+  if(!fxReady||fxBusy)return;
+  const n=tokens().find(x=>!FX.has(x.key));t.dataset.fxPending=n?'1':'0';if(!n)return;
+  if(busy)return fxSchedule(200);                                 // сначала подсказка
+  fxBusy=true;eng.postMessage({cmd:'check',key:n.key,left:n.left,word:n.w});
+}
+function fxApply(x,w){                                              // заменить слово (Ctrl+Z отменяет); курсор остаётся после заменённого слова или в конце текста
+  const end=atEnd(),r=cased(x.w,w);t.focus();t.setSelectionRange(x.s,x.e);
+  if(!document.execCommand('insertText',false,r)){t.setRangeText(r,x.s,x.e,'end');t.dispatchEvent(new Event('input'))}
+  const c=end?t.value.length:x.s+r.length;t.setSelectionRange(c,c);paint();
+}
 function paint(){
-  const on=atEnd()&&!off,g=on?ghost():'';
-  const h=esc(t.value)+(g?'<span class="g">'+esc(g)+'</span>':'')+'​';
+  const on=atEnd()&&!off,g=on?ghost():'',v0=t.value,bad=tokens().filter(x=>fxOf(x).length);let h='',p0=0;
+  for(const x of bad){h+=esc(v0.slice(p0,x.s))+'<span class="bad">'+esc(v0.slice(x.s,x.e))+'</span>';p0=x.e}
+  h+=esc(v0.slice(p0))+(g?'<span class="g">'+esc(g)+'</span>':'')+'​';
   if(h!==lastHtml){mi.innerHTML=h;lastHtml=h}                       // зеркало перестраивается только при изменении
   const v=on&&vars.some(r=>r)?(vars.length>1?'<span class="k">↑↓</span>':'')+vars.map((r,i)=>'<button type="button" data-i="'+i+'"'+(i===sel?' class="on"':'')+'><b>'+esc(pre)+'</b>'+esc(r)+'</button>').join(' · '):'';
   if(v!==lastVars){vb.innerHTML=v;lastVars=v}
+  st.style.visibility=!on&&['end','next','rest'].includes(stKey)?'hidden':'';   // курсор внутри текста: подписи варианта нет
+  const x=fxCur(),id=x?x.key:'';if(id!==fxWord){fxWord=id;fxSel=0}
+  const f=x?'<span class="k">'+esc(T().fix)+'</span>'+fxOf(x).map((w,i)=>'<button type="button" data-i="'+i+'"'+(i===fxSel?' class="on"':'')+'>'+esc(cased(x.w,w))+'</button>').join(' · '):'';
+  if(f!==lastFx){fb.innerHTML=f;lastFx=f}
 }
 function clear(){vars=[];sel=0;pre=''}
 function schedule(){clearTimeout(timer);timer=setTimeout(pump,60)}
@@ -322,6 +368,9 @@ eng.onmessage=e=>{
   if(m.ev==='progress'){if(DEMO)return;LOADER.progress(m.got/m.total);if(m.cached)status('cache');else status('prog',Math.round(m.got/1e6),Math.round(m.total/1e6));return}   // из кэша — без счётчика мегабайт
   if(m.ev==='ready'){if(DEMO&&!demoEnd)held=m;else onReady(m);return}
   if(m.ev==='error'){busy=false;LOADER.done();status('err',m.error.split('\n')[0]);return}
+  if(m.ev==='corr_ready'){fxReady=true;t.dataset.fxReady='1';fxSchedule(0);return}
+  if(m.ev==='corr_error'){t.dataset.fxReady='0';return}                // без исправлений страница работает как раньше
+  if(m.ev==='checked'){fxBusy=false;if(!m.aborted){FX.set(m.key,m.fixes||NOFIX);if(FX.size>4000)FX.delete(FX.keys().next().value);paint()}fxSchedule(m.aborted?300:0);return}
   if(m.ev!=='answer')return;
   busy=false;
   if(t.value===m.text&&atEnd()&&!off){
@@ -330,14 +379,14 @@ eng.onmessage=e=>{
     status(!vars.length?'ready':m.word_end?'end':m.after_space?'next':'rest');
     t.dataset.ms=m.ms_model;                                           // время ответа — для тестов, на экран не выводится
   }else again=true;
-  if(again)schedule();
+  if(again)schedule();else fxSchedule(250);
 };
 const qs=new URLSearchParams(location.search);                       // ?threads=4 (нужна изоляция COOP/COEP), ?body=body.onnx (fp32, для проверок)
 // ?loader=20 — загрузка на экране растянута на 20 с (посмотреть анимацию, когда модель приходит из кэша за секунду); готовность ждёт конца показа
 const DEMO=Math.max(0,+qs.get('loader')||0);let held=null,demoEnd=false;
 if(DEMO){const T0=performance.now(),tick=setInterval(()=>{const u=Math.min(1,(performance.now()-T0)/DEMO/1000);
   LOADER.progress(u);status('prog',Math.round(u*75),75);if(u>=1){clearInterval(tick);demoEnd=true;if(held)onReady(held)}},100)}
-eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined,gate:qs.get('gate')!=='0'});
+eng.postMessage({cmd:'init',base:'model/',threads:+qs.get('threads')||1,body:qs.get('body')||undefined,gate:qs.get('gate')!=='0',corr:qs.get('corr')!=='0'});
 function accept(rest){                                                 // дописать остаток и пробел в конец поля (Ctrl+Z отменяет)
   clear();t.focus();t.setSelectionRange(t.value.length,t.value.length);
   if(!document.execCommand('insertText',false,rest+' ')){t.setRangeText(rest+' ',t.value.length,t.value.length,'end');t.dispatchEvent(new Event('input'))}
@@ -348,17 +397,21 @@ t.addEventListener('input',e=>{
     const keep=ghost();pre+=d;vars=vars.filter(r=>r.startsWith(d)&&r.length>d.length).map(r=>r.slice(d.length));
     sel=Math.max(0,keep.startsWith(d)?vars.indexOf(keep.slice(d.length)):0);
   }else clear();
-  paint();schedule();
+  paint();schedule();fxSchedule(350);
 });
 t.addEventListener('keydown',e=>{
   if(e.isComposing)return;
-  const on=vars.length&&atEnd()&&!off;
-  if(e.key==='Tab'&&!e.shiftKey&&on){e.preventDefault();accept(ghost())}
+  const on=vars.length&&atEnd()&&!off,x=on?null:fxCur(),fx=x?fxOf(x):NOFIX;
+  if(fx.length&&e.key==='Tab'&&!e.shiftKey){e.preventDefault();fxApply(x,fx[fxSel]||fx[0])}                 // подсказки нет — Tab и стрелки относятся к исправлениям
+  else if(fx.length&&(e.key==='ArrowDown'||e.key==='ArrowUp')){e.preventDefault();fxSel=(fxSel+(e.key==='ArrowDown'?1:fx.length-1))%fx.length;lastFx='';paint()}
+  else if(e.key==='Tab'&&!e.shiftKey&&on){e.preventDefault();accept(ghost())}
   else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&on&&vars.some(r=>r)){e.preventDefault();sel=(sel+(e.key==='ArrowDown'?1:vars.length-1))%vars.length;paint()}   // пока виден список, стрелки — его
   else if(e.key==='Escape'&&vars.length){off=true;paint()}
 });
 vb.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()});   // фокус остаётся в поле
 vb.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&vars[+b.dataset.i]!=null)accept(vars[+b.dataset.i])});
+fb.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()});
+fb.addEventListener('click',e=>{const b=e.target.closest('button'),x=fxCur();if(b&&x&&fxOf(x)[+b.dataset.i])fxApply(x,fxOf(x)[+b.dataset.i])});
 ['keyup','click','focus','select'].forEach(n=>t.addEventListener(n,paint));
 document.addEventListener('selectionchange',()=>{if(document.activeElement===t)paint()});
 setLang(lang,false);status('load');

@@ -2,6 +2,7 @@
 // Построчный перенос web/py/runner.py (эталон; паритет — web/tests/test_site.py). Состояние модели живёт здесь, страница шлёт текст поля.
 // Сообщения: {cmd:'init', base, threads} → {ev:'progress'|'ready'|'error'}; {cmd:'complete', id, text} → {ev:'answer', id, ...};
 // {cmd:'trace', id, text} → лог-вероятности каждой следующей буквы и последней строки целиком (для тестов паритета).
+// {cmd:'check', key, left, word} → {ev:'checked', key, fixes} — исправления набранного слова; {ev:'corr_ready'} — исправление загружено.
 importScripts('ort/ort.wasm.min.js');
 
 const BEAM = 4, MAXLEN = 12, TOP = 5, CTX = 256, RESET_AT = 4096, KEEP_WORDS = 8;
@@ -22,8 +23,8 @@ async function fetchBuf(url, onBytes) {                       // загрузк�
 // HTTP-кэш Pages этого не обещает: срок 10 минут, дальше сверка каждого файла с сервером, а крупные файлы браузер может и не держать.
 // Другая модель — другой хеш — скачается заново; старые версии из кэша удаляются.
 const MODEL_CACHE = 'utl-model';
-async function cachedBuf(url, hash, onBytes) {               // → [байты, из кэша?]
-  let c = null; try { c = await caches.open(MODEL_CACHE); } catch (e) {}   // нет Cache Storage (приватный режим и т. п.) — просто сеть
+async function cachedBuf(url, hash, onBytes, cacheName = MODEL_CACHE) {   // → [байты, из кэша?]
+  let c = null; try { c = await caches.open(cacheName); } catch (e) {}   // нет Cache Storage (приватный режим и т. п.) — просто сеть
   const key = hash ? url + '?h=' + hash : null;
   if (c && key) { const hit = await c.match(key); if (hit) { const b = new Uint8Array(await hit.arrayBuffer()); onBytes(b.length, true); return [b, true]; } }
   const b = await fetchBuf(url, n => onBytes(n, false));
@@ -304,13 +305,95 @@ async function answer(text) {
   return { suggestions: sugg, after_space, word_end, ms_model: Math.round(performance.now() - t0) };
 }
 
+// Исправление набранного слова. Кандидаты — слова словаря в одной правке от набранного; счёт — log p v2.1 после левой части;
+// слово помечается, если лучший кандидат обходит набранное на порог языка. Настройки и файлы — model/corr.json (web/model/export_corr.py).
+const CORR_CACHE = 'utl-corr', ABORT = Symbol('abort'); let C = null, chk = null, urgent = 0;
+
+function parseWords(text) {                                   // «слово\tчастота» → слова по длине, порядок файла сохранён
+  const byLen = new Map(), cnt = new Map();
+  for (const line of text.split('\n')) {
+    const k = line.indexOf('\t'); if (k < 1) continue;
+    const w = line.slice(0, k), n = [...w].length; cnt.set(w, +line.slice(k + 1));
+    if (!byLen.has(n)) byLen.set(n, []); byLen.get(n).push(w);
+  }
+  return { byLen, cnt };
+}
+
+async function loadCorr(base) {                               // файлы качаются параллельно подсказкам, граф создаётся в очереди сообщений
+  try {
+    base = new URL(base, self.location).href;
+    const cfg = await (await fetch(base + 'corr.json', { cache: 'no-cache' })).json(), keep = new Set(), get = async f => { keep.add(base + f + '?h=' + cfg.hash[f]); return (await cachedBuf(base + f, cfg.hash[f], () => {}, CORR_CACHE))[0]; };
+    const [ru, en] = await Promise.all([get('words_ru.txt'), get('words_en.txt')]), dec = new TextDecoder();
+    const words = { ru: parseWords(dec.decode(ru)), en: parseWords(dec.decode(en)) };
+    try { const c = await caches.open(CORR_CACHE); for (const r of await c.keys()) if (!keep.has(r.url)) await c.delete(r); } catch (e) {}
+    queue = queue.then(async () => {
+      try { chk = new Session(); C = { cfg, words }; postMessage({ ev: 'corr_ready' }); }
+      catch (e) { postMessage({ ev: 'corr_error', error: String(e) }); }
+    });
+  } catch (e) { postMessage({ ev: 'corr_error', error: String(e) }); }
+}
+
+function dl1(x, y) {                                          // расстояние Дамерау — Левенштейна с пределом 1 (2 = больше предела)
+  if (Math.abs(x.length - y.length) > 1) return 2;
+  let p2 = null, p1 = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i++) {
+    const c = new Array(y.length + 1).fill(0); c[0] = i; let low = i;
+    for (let j = 1; j <= y.length; j++) {
+      c[j] = Math.min(p1[j] + 1, c[j - 1] + 1, p1[j - 1] + (x[i - 1] !== y[j - 1] ? 1 : 0));
+      if (p2 !== null && i > 1 && j > 1 && x[i - 1] === y[j - 2] && x[i - 2] === y[j - 1]) c[j] = Math.min(c[j], p2[j - 2] + 1);
+      if (c[j] < low) low = c[j];
+    }
+    if (low > 1) return 2;
+    p2 = p1; p1 = c;
+  }
+  return p1[y.length];
+}
+
+function candidates(typed, W) {                               // верхние maxc по частоте слов словаря в одной правке
+  const t = [...typed], out = [];
+  for (const n of [t.length - 1, t.length, t.length + 1]) for (const w of W.byLen.get(n) || []) if (w !== typed && dl1([...w], t) <= 1) out.push(w);
+  return out.map((w, i) => [w, i]).sort((a, b) => W.cnt.get(b[0]) - W.cnt.get(a[0]) || a[1] - b[1]).slice(0, C.cfg.maxc).map(x => x[0]);
+}
+
+const yieldTick = () => new Promise(r => setTimeout(r));      // между кандидатами отдаём очередь: новая буква в поле важнее проверки
+async function tick() { await yieldTick(); if (urgent > 0) throw ABORT; }
+
+async function lmScores(left, words) {                        // log p каждого кандидата как целого слова после левой части и пробела
+  const lp0 = await chk.sync(idsOf([...left].slice(-C.cfg.ctx).join('') + ' ')); if (!lp0) return null;
+  const r = chk.r, st0 = r.snapshot(), out = [];
+  try {
+    for (const w of words) {
+      await tick(); r.restore(st0); let lpb = lp0, sc = 0; const rest = [];
+      for (const i of idsOf(w)) { sc += lpb[i]; const lg = await r.push(i); lpb = await mixCopy(r.zn, branchCf(chk.ix, rest, i), lg); rest.push(i); }
+      let mx = -Infinity; for (let j = 0; j < lpb.length; j++) if (!alpha[j] && lpb[j] > mx) mx = lpb[j];
+      let sum = 0; for (let j = 0; j < lpb.length; j++) if (!alpha[j]) sum += Math.exp(lpb[j] - mx);
+      out.push(sc + mx + Math.log(sum));
+    }
+  } finally { r.restore(st0); }
+  return out;
+}
+
+async function checkWord(left, word, debug) {                 // → {fixes: [слова по убыванию счёта]} — пусто, если слово не помечено
+  const typed = word.toLowerCase(), lang = /^[а-яё]+$/.test(typed) ? 'ru' : /^[a-z]+$/.test(typed) ? 'en' : null; if (!C || !lang) return { fixes: [] };
+  const cands = candidates(typed, C.words[lang]); if (!cands.length) return { fixes: [] };
+  const list = [typed, ...cands], lm = await lmScores(left, list); if (!lm) return { fixes: [] };
+  const order = list.map((_, i) => i).sort((a, b) => lm[b] - lm[a]), best = order[0];
+  const fixes = best !== 0 && lm[best] - lm[0] >= C.cfg.th[lang] ? order.filter(i => i !== 0 && lm[i] > lm[0]).slice(0, C.cfg.show).map(i => list[i]) : [];
+  return debug ? { fixes, list, lm } : { fixes };
+}
+
 let queue = Promise.resolve();                                // сообщения обрабатываются строго по очереди
 onmessage = ev => {
   const m = ev.data;
+  if (m.cmd === 'complete') urgent++;                         // проверка слова уступает подсказке на ближайшем кандидате
   queue = queue.then(async () => {
     try {
-      if (m.cmd === 'init') gateOn = m.gate !== false, await init(m.base || 'model/', m.threads || 1, m.body);
-      else if (m.cmd === 'complete') postMessage({ ev: 'answer', id: m.id, text: m.text, ...(await answer(m.text)) });
+      if (m.cmd === 'init') { gateOn = m.gate !== false; await init(m.base || 'model/', m.threads || 1, m.body); if (m.corr !== false) loadCorr(m.base || 'model/'); }
+      else if (m.cmd === 'complete') { urgent--; postMessage({ ev: 'answer', id: m.id, text: m.text, ...(await answer(m.text)) }); }
+      else if (m.cmd === 'check') {
+        try { postMessage({ ev: 'checked', key: m.key, ...(await checkWord(m.left, m.word, m.debug)) }); }
+        catch (e) { postMessage(e === ABORT ? { ev: 'checked', key: m.key, aborted: true } : { ev: 'checked', key: m.key, fixes: [], failed: String(e) }); }
+      }
       else if (m.cmd === 'trace') {                           // для тестов: лог-вероятность каждой следующей буквы текста (без E) и последняя строка (с E)
         const ids = idsOf(m.text), r = new Runner(), each = []; let lg = null;
         for (let i = 0; i < ids.length; i++) { lg = await r.push(ids[i]); if (i + 1 < ids.length) each.push(logSoftmax(lg)[ids[i + 1]]); }
